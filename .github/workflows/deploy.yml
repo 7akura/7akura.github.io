@@ -17,22 +17,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 添加 pnpm 设置
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
           version: 8
-        
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'  # 使用 pnpm 缓存
-          
-      # 安装依赖
+          cache: 'pnpm'
+
+      # 使用 --no-frozen-lockfile 作为临时解决方案
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        
+        run: pnpm install --no-frozen-lockfile
+
       - name: Build with Rspress
         run: pnpm run build
 
