@@ -8,7 +8,7 @@ hero:
   actions:
     - theme: brand
       text: Quick Start
-      link: /guide/
+      link: /hello/
     - theme: alt
       text: GitHub
       link: https://github.com/web-infra-dev/rspress

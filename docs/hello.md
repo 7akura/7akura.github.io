@@ -340,3 +340,137 @@ Context 使组件向其下方的整个树提供信息。可以跨组件进行通
 >3. 使用 useCallback和 useMemo缓存函数引用，避免父组件渲染时重新创建函数导致子组件不必要的渲染。
 >4. 使用 shouldComponentUpdate 生命周期方法（类组件）或 React.memo 的比较函数（函数组件）来手动控制是否渲染子组件。
 
+### 5.useEffect的生命周期：如何精确控制副作用的执行时机（依赖数组）？ 如何正确清理副作用（返回清理函数）？
+
+>1. 挂载阶段，组件首次渲染完毕后，React执行useEffect中定义的副作用函数。
+
+>2. 更新阶段，组件重新渲染时根据依赖项数组的情况来决定是否执行副作用:若数组存在且不为空，那么React会将此时的依赖值和上一次渲染的依赖进行比较：如果有变化则先执行上一次副作用返回的清理函数​​，然后执行本次的副作用函数；如果没变化则跳过这次的副作用执行；如果数组为空，则副作用仅在初始渲染时执行一次；如果数组不存在，则每次渲染都会执行副作用。
+
+>3. 卸载阶段，React 执行该 useEffect​​上一次执行副作用时返回的清理函数​​。
+
+>同一个 useEffect的下一次副作用执行之前（依赖项变化时），执行清理函数。
+
+### 6. useCallback& useMemo  ： 它们是如何通过记忆化优化性能的？在什么场景下真正需要使用它们？（避免过早优化）
+
+核心原理：记忆化 (Memoization)
+​​定义：​​ 记忆化是一种优化技术，它通过缓存函数调用的结果或值，并在后续调用时，如果输入（依赖项）没有变化，就直接返回缓存的结果，从而避免重复计算。
+​​目的：​​ 减少不必要的计算开销，提高性能。
+
+#### useCallBack:记忆化一个函数引用
+```jsx
+const memoizedCallBack = useCallBack( 
+  () =>{
+    //函数逻辑
+    doSomething(a,b);
+  },
+  [a,b]//依赖项数组
+)
+```
+1.在组件首次渲染时，useCallback会创建传入的函数并将其缓存。
+
+2.在后续渲染中，React 会将当前的依赖项数组 ([a, b]) 与上一次渲染时的依赖项数组进行​​浅比较​​ (Object.is或 ===比较)。
+
+​3.​如果依赖项没有变化：​​ useCallback会返回​​上一次缓存的函数引用​​。
+
+​4.​如果依赖项有变化：​​ useCallback会创建并返回一个​​新的函数引用​​，并将新的函数和新的依赖项数组缓存起来。
+​​优化点：​​ 避免在每次渲染时都创建新的函数实例（新的引用）。这对于传递给子组件（尤其是用 React.memo优化的子组件）的回调函数非常有用，因为稳定的函数引用可以防止子组件不必要的重新渲染（浅比较 props时函数引用相同）。
+
+useCallBack使用场景：
+1.传递给 React.memo/ PureComponent子组件的回调函数：​​
+如果父组件渲染时，传递给优化子组件（React.memo或 PureComponent）的回调函数每次都是新的引用（例如内联函数 onClick={() => {...}}），即使函数逻辑没变，子组件的浅比较也会认为 props变了，导致子组件不必要的重新渲染。
+使用 useCallback可以稳定函数引用，只有当其依赖项变化时才创建新函数，从而让子组件的浅比较生效，避免不必要的渲染。
+```jsx
+const Child = React.memo(function Child({ onClick }) {
+  console.log('Child rendered');
+  return <button onClick={onClick}>Click Me</button>;
+});
+function Parent() {
+  const [count, setCount] = useState(0);
+  // 使用 useCallback 稳定 onClick 引用
+  const handleClick = useCallback(() => {
+    console.log('Clicked');
+  }, []); // 空依赖，函数引用永不改变
+  return (
+    <div>
+      <button onClick={() => setCount(c => c + 1)}>Parent Count: {count}</button>
+      <Child onClick={handleClick} />
+    </div>
+  );
+}
+```
+
+2.​​作为其他 Hook 的依赖项：​​
+如果一个函数被用作 useEffect、useMemo、useCallback（嵌套）或其他自定义 Hook 的依赖项。
+如果这个函数在每次渲染时都重新创建，会导致依赖它的 Hook 频繁重新执行（因为依赖项引用变了）。
+使用 useCallback稳定函数引用，可以确保依赖它的 Hook 只在函数逻辑真正改变（依赖项变化）时才重新执行。
+```jsx
+function Example({ data }) {
+  // 没有 useCallback: fetchData 每次渲染都变，导致 useEffect 每次渲染都运行
+  // const fetchData = () => { ... };
+  // 使用 useCallback: 只在 data 变化时 fetchData 引用变
+  const fetchData = useCallback(() => {
+    // 使用 data 进行数据获取
+  }, [data]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]); // useEffect 依赖 fetchData
+  // ...
+}
+```
+
+3.​​在自定义 Hook 中暴露稳定的函数：​​
+如果你在编写一个自定义 Hook，并且这个 Hook 会返回一个函数供使用者调用（例如事件处理器、操作方法）。
+使用 useCallback包裹这个返回的函数，可以确保使用者在使用时（例如在 useEffect依赖项中）获得稳定的引用，避免使用者侧不必要的重新执行或渲染。
+
+#### useMemo: 记忆化一个计算结果（值）
+```jsx
+const memoizedValue = useMemo(
+  () => computerExpensiveValue(a,b),
+  [a,b],//依赖项数组
+)
+```
+1.在组件首次渲染时，useMemo会调用传入的计算函数 (computeExpensiveValue)，将其返回值缓存。
+
+2.在后续渲染中，React 会将当前的依赖项数组 ([a, b]) 与上一次渲染时的依赖项数组进行​​浅比较​​。
+​
+​3.如果依赖项没有变化：​​ useMemo会直接返回​​上一次缓存的计算结果​​，​​不会重新执行计算函数​​。
+
+​​4.如果依赖项有变化：​​ useMemo会​​重新执行计算函数​​，将新的返回值缓存起来并返回。
+​​优化点：​​ 避免在每次渲染时都执行开销较大的计算（如复杂的数据转换、过滤、排序等）。只有当依赖项变化时才重新计算。
+
+useMemo使用场景：
+1.性能开销昂贵的计算
+
+2.稳定引用类型值作为 props传递给优化子组件：​​
+类似于```useCallback```对函数的作用，```useMemo```可以用于稳定对象或数组的引用。
+如果你需要将一个对象或数组作为prop传递给一个用 React.memo或 PureComponent优化的子组件，并且这个对象/数组的内容在父组件渲染时可能没有实际变化（但每次渲染都创建新引用），可以使用 ```useMemo```来返回相同的引用。
+```jsx
+const Child = React.memo(function Child({ config }) {
+  // ...
+});
+function Parent() {
+  const [count, setCount] = useState(0);
+  // 使用 useMemo 稳定 config 对象引用
+  const config = useMemo(() => ({ option: true }), []); // 空依赖，引用永不改变
+  return (
+    <div>
+      <button onClick={() => setCount(c => c + 1)}>Count: {count}</button>
+      <Child config={config} />
+    </div>
+  );
+}
+```
+
+3.避免不必要的重新渲染触发
+
+### 7.为什么 Hook 只能在函数组件顶层调用？
+React依赖于Hooks的调用顺序来正确关联每次渲染时的状态。如果在条件、循环或嵌套函数中调用，会导致调用顺序不一致，从而无法正确关联状态。
+#### 状态与调用顺序绑定​ & 底层链表结构​
+
+React 内部使用单向链表存储 Hook 状态,通过​​调用顺序​​来追踪 Hook 状态
+
+每次渲染时，Hook 的调用顺序必须严格一致，按顺序"认领"对应链表节点
+
+
+### 8.React如何通过调用顺序管理状态？
+React在内部维护一个Hooks的链表（或数组）。每次渲染时，按照Hooks的调用顺序依次读取和更新链表中的状态。如果顺序改变，就会导致状态错乱。
